@@ -1,0 +1,111 @@
+---
+title: 'Practical Machine Learning: Course Project'
+author: "AAbellon1"
+date: "2023-08-03"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Executive Summary
+
+Using fitness devices such as Fitbit, it is now possible to collect a large amount of data about personal activity relatively inexpensively. These types of devices enable individuals to take measurements about themselves to improve their health and to find patterns in their behavior. Interestingly, one thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. As such, the goal of this project is to use data from accelerometers on the belt, forearm, arm, and dumbbell of 6 participants and predict the manner in which they did the exercise. This is represented by the *classe* variable, consisting of 5 different ways or levels, found in the training dataset.
+
+For this project, various machine learning models were created and compared to determine their relative effectiveness. Notably, the performance of Adaboost (a Boosting approach) and Random Forest using various K parameter values were examined, all implemented through the `RWeka` package. Overall, the Random Forest model with a K value of 2*sqrt(p) emerged as the most accurate, boasting a remarkable 99.7757% accuracy rate alongside a notably low anticipated out-of-sample error rate of 0.2243%.
+
+# Loading the Dataset and Libraries
+
+First, the data and different libraries needed for the machine learning modeling were loaded.
+
+```{r load,message=FALSE}
+fileUrl1 = 'https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv'
+download.file(fileUrl1, destfile = './pml-training.csv',method = 'curl')
+
+fileUrl2 = 'https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv'
+download.file(fileUrl2, destfile = './pml-testing.csv',method = 'curl')
+
+pml_training = read.csv("./pml-training.csv")
+pml_testing = read.csv("./pml-testing.csv")
+
+library(caret)
+library(RWeka)
+```
+
+# Data Preprocessing
+
+Next, data preprocessing was conducted to account for the many NA and missing values found in the dataset. Cross validation was also done by using the `createDataPartition` function to split the data into training and test sets.
+
+```{r clean}
+outTrain1 = sapply(pml_training, function(x) any(is.na(x)))
+outTrain2 = sapply(pml_training, function(x) any("" %in% unique(x)))
+outTrainFinal = outTrain1 | outTrain2
+pml_training_clean = pml_training[,-which(outTrainFinal)]
+
+set.seed(123)
+inTrain = createDataPartition(pml_training_clean$classe, p=0.75, list=FALSE)
+training = pml_training_clean[inTrain,]
+testing = pml_training_clean[-inTrain,]
+training = training[,-1:-7]
+testing = testing[,-1:-7]
+training[,1:(ncol(training)-1)] = lapply(training[,1:(ncol(training)-1)],as.numeric)
+testing[,1:(ncol(testing)-1)] = lapply(testing[,1:(ncol(testing)-1)],as.numeric)
+training$classe = as.factor(training$classe)
+testing$classe = as.factor(testing$classe)
+```
+
+# Model Selection
+
+For the model selection, Adaboost and Random Forest (with different K parameter values) were created and evaluated through the following lines of code.
+
+### Adaboost (Boosting)
+```{r adaboost}
+adaboosttree = AdaBoostM1(classe ~ ., data = training,
+                          control = Weka_control(W=list(J48)))
+evaluate_Weka_classifier(adaboosttree, newdata = testing)
+```
+
+### Random Forest (K = 0.5*sqrt(p))
+```{r rf1}
+RF = make_Weka_classifier('weka/classifiers/trees/RandomForest')
+rfmodel1 = RF(classe ~ .,
+              data = training, 
+              control = Weka_control(K=floor(0.5*sqrt(ncol(training)-1))))
+evaluate_Weka_classifier(rfmodel1,newdata = testing)
+```
+
+### Random Forest (K = sqrt(p))
+```{r rf2}
+rfmodel2 = RF(classe ~ .,
+              data = training, 
+              control = Weka_control(K=floor(sqrt(ncol(training)-1))))
+evaluate_Weka_classifier(rfmodel2,newdata = testing)
+```
+
+### Random Forest (K = 2*sqrt(p))
+```{r rf3}
+rfmodel3 = RF(classe ~ .,
+              data = training, 
+              control = Weka_control(K=floor(2*sqrt(ncol(training)-1))))
+evaluate_Weka_classifier(rfmodel3,newdata = testing)
+```
+
+From the results, we can see that although the accuracy between each of these machine learning models is minimal (i.e., Adaboost and all of the Random Forest models generated at least 99% accuracy and less than 1% out-of-sample error), it is ultimately **Random Forest (K = 2\*sqrt(p))** which produced the highest accuracy rate of **99.7757%** and lowest out-of-sample error rate of **0.2243%**.
+
+# Predictions
+
+Given this, Random Forest (K = 2*sqrt(p)) was then used as the model for predicting the 20 test cases available in the test data.
+
+```{r predict}
+training_columns = c(colnames(training))
+pred_columns = training_columns[-(length(training_columns))]
+prediction_data = pml_testing[,pred_columns]
+
+prediction_data[,1:(ncol(prediction_data))] = lapply(prediction_data[,1:(ncol(prediction_data))],as.numeric)
+
+prediction_data$classe = predict(rfmodel3,prediction_data)
+prediction_data$classe
+```
